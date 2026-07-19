@@ -12,3 +12,8 @@ export const getAdvice = asyncHandler(async (req: Request, res: Response) => {
   );
   new ApiResponse(result).send(res);
 });
+
+export const getHistory = asyncHandler(async (req: Request, res: Response) => {
+  const history = await careerAdvisorService.getHistory(req.user!.id);
+  new ApiResponse(history).send(res);
+});

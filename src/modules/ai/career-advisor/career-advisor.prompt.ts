@@ -9,13 +9,41 @@ export const CAREER_ADVISOR_SCHEMA_HINT = `{
   "interviewTips": string[]
 }`;
 
-export function buildCareerAdvisorPrompt(input: CareerAdvisorInput): string {
+export interface CareerAdvisorPromptContext {
+  previousRoles?: string[];
+  previousSkillGaps?: string[];
+}
+
+export function buildCareerAdvisorPrompt(
+  input: CareerAdvisorInput,
+  context: CareerAdvisorPromptContext = {},
+): string {
   return `You are an experienced career advisor for software and tech roles.
 
 A candidate has given you the following information:
 - Current skills: ${input.skills}
 - Experience: ${input.experience || "Not specified"}
 - Target role: ${input.targetRole}
+${
+  context.previousRoles?.length
+    ? `\nIn earlier sessions, this candidate was already shown these roles: ${context.previousRoles.join(", ")}. Prefer surfacing different, complementary roles unless a repeat is genuinely the best fit.`
+    : ""
+}
+${
+  context.previousSkillGaps?.length
+    ? `\nEarlier sessions flagged these skill gaps: ${context.previousSkillGaps.join(", ")}. If the candidate's stated skills now cover any of these, acknowledge the progress in "careerSummary".`
+    : ""
+}
+${
+  input.excludeRoles.length
+    ? `\nThe candidate explicitly asked to exclude these roles from "bestMatchingRoles": ${input.excludeRoles.join(", ")}. Do not include them.`
+    : ""
+}
+${
+  input.focusSkill
+    ? `\nThe candidate wants the advice to focus more specifically on: "${input.focusSkill}". Weight "skillGaps", "learningRoadmap", and "interviewTips" toward this area.`
+    : ""
+}
 
 Think step by step, silently, about how well the candidate's current skills
 and experience match the target role, what's missing, and what they should

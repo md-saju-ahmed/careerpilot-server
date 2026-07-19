@@ -7,5 +7,6 @@ import { careerAdvisorSchema } from "./career-advisor.validators.js";
 const router = Router();
 
 router.post("/", protect, validate(careerAdvisorSchema), controller.getAdvice);
+router.get("/history", protect, controller.getHistory);
 
 export default router;

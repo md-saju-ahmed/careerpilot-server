@@ -6,6 +6,12 @@ export const careerAdvisorSchema = z.object({
     experience: z.string().trim().max(120).optional().default(""),
     targetRole: z.string().trim().min(2).max(80),
     regenerate: z.boolean().optional(),
+    excludeRoles: z
+      .array(z.string().trim().min(1))
+      .max(10)
+      .optional()
+      .default([]),
+    focusSkill: z.string().trim().max(80).optional(),
   }),
 });
 
