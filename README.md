@@ -38,7 +38,7 @@ The API does not manage its own user accounts or sessions. Instead, it trusts a 
 
 - **Job board**: create, list, filter, sort, and paginate job postings; save jobs; apply to jobs; view related jobs by category.
 - **Profile management**: personal info, skills, education history, and work experience, each independently editable.
-- **AI Career Advisor**: generates a structured career assessment (summary, matching roles, skill gaps, learning roadmap, salary insight, interview tips) from a candidate's skills, experience, and target role.
+- **AI Career Advisor**: generates a structured career assessment (summary, matching roles, skill gaps, learning roadmap, salary insight, interview tips) from a candidate's skills, experience, and target role. Requests are context-aware: callers can exclude previously-suggested roles or focus on a specific skill to refine results, and a history endpoint returns the caller's recent requests.
 - **AI Cover Letter Generator**: generates a ready-to-send cover letter tailored by tone and length, using the candidate's profile and stated skills/experience.
 - **Testimonials**: authenticated users submit reviews that require admin approval before being publicly listed.
 - **Contact form**: public, rate-limited message submissions with admin review/resolution workflow.
@@ -215,15 +215,15 @@ All routes are mounted under the `/api` prefix (see `src/routes/index.ts`), in a
 
 ### Jobs — `/api/jobs`
 
-| Method | Path         | Auth                 | Description                                                                                                                    |
-| ------ | ------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| GET    | `/`          | Optional             | List jobs with search, filters (category, location, experience, employment type, min salary, skills), sorting, and pagination. |
-| GET    | `/saved`     | Required             | List the authenticated user's saved jobs (paginated).                                                                          |
-| GET    | `/:slug`     | Optional             | Get a single job by slug, including related jobs in the same category.                                                         |
-| POST   | `/`          | Required             | Create a new job posting.                                                                                                      |
-| PATCH  | `/:id/save`  | Required             | Toggle saving/unsaving a job.                                                                                                  |
-| POST   | `/:id/apply` | Required             | Apply to a job (duplicate applications rejected).                                                                              |
-| DELETE | `/:id`       | Required + Ownership | Delete a job (only the creator or an admin).                                                                                   |
+| Method | Path         | Auth                 | Description                                                                                                                                                                                          |
+| ------ | ------------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/`          | Optional             | List jobs with search, filters (category, location, experience, employment type, min salary, skills, and `mine=true` to restrict to the authenticated user's own postings), sorting, and pagination. |
+| GET    | `/saved`     | Required             | List the authenticated user's saved jobs (paginated).                                                                                                                                                |
+| GET    | `/:slug`     | Optional             | Get a single job by slug, including related jobs in the same category.                                                                                                                               |
+| POST   | `/`          | Required             | Create a new job posting.                                                                                                                                                                            |
+| PATCH  | `/:id/save`  | Required             | Toggle saving/unsaving a job.                                                                                                                                                                        |
+| POST   | `/:id/apply` | Required             | Apply to a job (duplicate applications rejected).                                                                                                                                                    |
+| DELETE | `/:id`       | Required + Ownership | Delete a job (only the creator or an admin).                                                                                                                                                         |
 
 ### Profile — `/api/profile` (all routes require authentication)
 
@@ -276,9 +276,10 @@ All routes are mounted under the `/api` prefix (see `src/routes/index.ts`), in a
 
 ### AI — Career Advisor — `/api/ai/career-advisor`
 
-| Method | Path | Auth     | Description                                                                 |
-| ------ | ---- | -------- | --------------------------------------------------------------------------- |
-| POST   | `/`  | Required | Generate structured career advice from skills, experience, and target role. |
+| Method | Path       | Auth     | Description                                                                                                                                     |
+| ------ | ---------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/`        | Required | Generate structured career advice from skills, experience, and target role. Accepts optional `excludeRoles` and `focusSkill` to refine results. |
+| GET    | `/history` | Required | Return the caller's last 5 career-advisor requests (target role, matched roles, skill gaps, exclusions).                                        |
 
 ### AI — Cover Letter — `/api/ai/cover-letter`
 
@@ -376,6 +377,13 @@ If `GEMINI_API_KEY` is not configured, both helpers throw a `500 ApiError`, so A
 
 Given a candidate's skills, experience, and target role, the service builds a structured prompt (`career-advisor.prompt.ts`) instructing the model to reason silently and return **only** a JSON object matching a fixed schema, then validates the response against a Zod schema (`career-advisor.validators.ts`). If the first attempt fails validation, the service retries once with an added "strict JSON" reminder before giving up and returning a `502` error. Successful generations are logged to `AiUsage`.
 
+**Context-aware refinement:** before generating, the service pulls the caller's last 3 `AiUsage` records for this feature and folds their `bestMatchingRoles` and `skillGaps` into the prompt as prior context, so repeat requests don't just repeat the same suggestions. The request body also accepts:
+
+- `excludeRoles` (up to 10) — roles to omit from this generation, merged with any roles excluded in prior requests (persisted server-side, so exclusions carry across sessions rather than resetting per call).
+- `focusSkill` — an optional skill to weight the advice toward.
+
+Each generation records `bestMatchingRoles`, `skillGaps`, `excludedRoles`, and (if provided) `focusSkill` on the `AiUsage` document, which both drives future context-awareness and backs the history endpoint below.
+
 The generated result includes:
 
 - `careerSummary` — a short fit assessment
@@ -384,6 +392,8 @@ The generated result includes:
 - `learningRoadmap` — ordered learning steps
 - `salaryInsight` — a salary range and contextual note
 - `interviewTips` — actionable interview tips
+
+**History (`GET /api/ai/career-advisor/history`):** returns the caller's last 5 career-advisor requests (`targetRole`, `bestMatchingRoles`, `skillGaps`, `excludedRoles`, `focusSkill`, `createdAt`), letting the frontend surface "previously explored" context alongside a new request.
 
 ### Cover Letter Generator (`/api/ai/cover-letter`)
 
