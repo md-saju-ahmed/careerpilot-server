@@ -26,6 +26,10 @@ export interface ListJobsQuery {
   mine?: boolean;
 }
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function slugify(value: string): string {
   return value
     .toLowerCase()
@@ -62,10 +66,7 @@ function buildFilter(
   }
 
   if (query.query) {
-    const regex = new RegExp(
-      query.query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-      "i",
-    );
+    const regex = new RegExp(escapeRegex(query.query), "i");
     filter.$or = [{ title: regex }, { company: regex }, { skills: regex }];
   }
 
@@ -74,10 +75,7 @@ function buildFilter(
   }
 
   if (query.location) {
-    filter.location = new RegExp(
-      query.location.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-      "i",
-    );
+    filter.location = new RegExp(escapeRegex(query.location), "i");
   }
 
   if (query.experience) {
@@ -103,7 +101,9 @@ function buildFilter(
   }
 
   if (query.skills?.length) {
-    filter.skills = { $in: query.skills };
+    filter.skills = {
+      $in: query.skills.map((skill) => new RegExp(escapeRegex(skill), "i")),
+    };
   }
 
   return filter;
