@@ -98,6 +98,7 @@ export async function protect(
       role,
       status,
       ...(typeof payload.name === "string" ? { name: payload.name } : {}),
+      ...(typeof payload.image === "string" ? { image: payload.image } : {}),
     };
 
     req.user = user;
@@ -168,6 +169,7 @@ export async function optionalAuth(
       role,
       status,
       ...(typeof payload.name === "string" ? { name: payload.name } : {}),
+      ...(typeof payload.image === "string" ? { image: payload.image } : {}),
     };
   } catch {
     // Ignore invalid or expired tokens and continue as an anonymous request.

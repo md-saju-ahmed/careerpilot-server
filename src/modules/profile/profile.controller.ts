@@ -8,6 +8,7 @@ export const getProfile = asyncHandler(async (req: Request, res: Response) => {
   const profile = await profileService.getOrCreateProfile(req.user!.id, {
     email: req.user!.email,
     ...(req.user!.name ? { name: req.user!.name } : {}),
+    ...(req.user!.image ? { avatarUrl: req.user!.image } : {}),
   });
   new ApiResponse(profile).send(res);
 });

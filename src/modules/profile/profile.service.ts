@@ -9,6 +9,7 @@ import { Profile } from "./profile.model.js";
 interface SeedClaims {
   email: string;
   name?: string;
+  avatarUrl?: string;
 }
 
 export async function getOrCreateProfile(userId: string, claims: SeedClaims) {
@@ -19,6 +20,7 @@ export async function getOrCreateProfile(userId: string, claims: SeedClaims) {
       userId,
       name: claims.name ?? "",
       email: claims.email,
+      ...(claims.avatarUrl ? { avatarUrl: claims.avatarUrl } : {}),
     });
   }
 
