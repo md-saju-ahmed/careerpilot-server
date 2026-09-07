@@ -1,6 +1,6 @@
 # CareerPilot Server
 
-The backend API for **CareerPilot**, a job board and career-development platform. It provides job listings, user profiles, an admin panel, and AI-powered career tools (career advice and cover letter generation), backed by MongoDB and secured with JWT verification against an external Better Auth identity provider.
+The backend API for **CareerPilot**, a job board and career-development platform. It provides job listings, a full recruiter-facing hiring workflow (company profiles, job publishing, and applicant tracking), user profiles, an admin panel, and AI-powered career tools (career advice, cover letter generation, and resume building), backed by MongoDB and secured with JWT verification against an external Better Auth identity provider.
 
 > Note: This repository is the **server (API) only**. The frontend/client application (including authentication via Better Auth) lives in a separate repository and is not part of this codebase.
 
@@ -36,15 +36,19 @@ The API does not manage its own user accounts or sessions. Instead, it trusts a 
 
 ## Features
 
-- **Job board**: create, list, filter, sort, and paginate job postings; save jobs; apply to jobs; view related jobs by category.
+- **Job board**: create, update, list, filter, sort, and paginate job postings; save jobs; apply to jobs; view related jobs by category.
+- **Job publishing workflow**: jobs move through `draft` → `published` → `closed` states. Only jobs in `published` status are visible to job seekers or open for applications; recruiters manage their own postings through every stage, and admins can moderate (approve/reject/reset) any job.
+- **Recruiter accounts & approval**: users with the `recruiter` role maintain a company profile (name, website, size, industry, description) and must be approved by an admin (`recruiterStatus`) before they can publish jobs or review applicants. Suspending or rejecting a recruiter immediately closes their published jobs and revokes their active sessions.
+- **Applications tracking**: job seekers can view their own application history; recruiters can list and paginate applicants for their job postings and move each applicant through a status pipeline (`applied` → `reviewing` → `shortlisted`/`rejected`/`hired`).
 - **Profile management**: personal info, skills, education history, and work experience, each independently editable.
 - **AI Career Advisor**: generates a structured career assessment (summary, matching roles, skill gaps, learning roadmap, salary insight, interview tips) from a candidate's skills, experience, and target role. Requests are context-aware: callers can exclude previously-suggested roles or focus on a specific skill to refine results, and a history endpoint returns the caller's recent requests.
 - **AI Cover Letter Generator**: generates a ready-to-send cover letter tailored by tone and length, using the candidate's profile and stated skills/experience.
+- **AI Resume Builder**: generates a complete, ATS-friendly plain-text resume (summary, skills, experience, education, achievements) from candidate-supplied details, falling back to the user's stored profile name when one isn't provided.
 - **Testimonials**: authenticated users submit reviews that require admin approval before being publicly listed.
 - **Contact form**: public, rate-limited message submissions with admin review/resolution workflow.
 - **Categories**: dynamically managed job categories (used for filtering and job creation validation), with auto-seeding of sensible defaults.
-- **Admin panel API**: user management (list/suspend/reactivate/delete), testimonial moderation, category management, and platform settings.
-- **Dashboard analytics**: role-aware summary (personal stats for regular users, platform-wide stats for admins), category breakdown, a six-month job posting trend, and recent job listings. A public stats endpoint is also available for unauthenticated visitors.
+- **Admin panel API**: user management (list/suspend/reactivate/delete), recruiter approval management, job moderation, testimonial moderation, category management, and platform settings.
+- **Dashboard analytics**: role-aware summary (personal stats for job seekers, hiring stats for recruiters, platform-wide stats for admins), category breakdown, a six-month job posting trend, and recent job listings. A public stats endpoint is also available for unauthenticated visitors.
 - **Public platform settings**: site name, support email, maintenance mode, and registration availability, exposed on a public, unauthenticated endpoint.
 
 ## Tech Stack
@@ -105,32 +109,37 @@ careerpilot-server/
 │   │   ├── asyncHandler.ts          # Wraps async route handlers for error forwarding
 │   │   ├── jwks.ts                  # Remote JWKS client for JWT verification
 │   │   ├── params.ts                # Required-path-param helper
-│   │   └── roles.ts                 # Known role definitions ("user", "admin")
+│   │   ├── roles.ts                 # Known role definitions ("user", "recruiter", "admin")
+│   │   └── session.ts               # `revokeSessionsForUser` — session cleanup helper
 │   ├── middlewares/
-│   │   ├── auth.middleware.ts       # `protect` and `optionalAuth` (JWT + live user status/role check)
+│   │   ├── auth.middleware.ts       # `protect` and `optionalAuth` (JWT + live user status/role/recruiterStatus check)
 │   │   ├── ownership.middleware.ts  # `requireOwnership` (resource-owner or admin check)
 │   │   ├── requireRole.middleware.ts# Role-based access guard
+│   │   ├── requireRecruiterApproved.middleware.ts # Blocks unapproved recruiters from job/applicant actions
 │   │   ├── validate.middleware.ts   # Zod-based request validation
 │   │   ├── notFound.middleware.ts   # 404 handler
 │   │   └── errorHandler.middleware.ts # Centralized error handler
 │   ├── modules/
-│   │   ├── jobs/                    # Job postings, saved jobs, applications
+│   │   ├── jobs/                    # Job postings (draft/published/closed), saved jobs, application records
+│   │   ├── applications/            # Applicant listing (recruiter) + application history (job seeker)
+│   │   ├── recruiter/                # Recruiter company profile management
 │   │   ├── profile/                 # User profile, education, experience
 │   │   ├── categories/              # Job categories
 │   │   ├── testimonials/            # User testimonials + moderation
 │   │   ├── contact/                 # Public contact form + admin inbox
-│   │   ├── dashboard/               # Analytics summaries (user/admin/public)
-│   │   ├── admin/                   # User management, platform settings, admin read models
+│   │   ├── dashboard/               # Analytics summaries (user/recruiter/admin/public)
+│   │   ├── admin/                   # User & recruiter management, job moderation, platform settings, admin read models
 │   │   ├── settings/                # Public (unauthenticated) settings endpoint
 │   │   └── ai/
 │   │       ├── provider.ts          # Centralized Gemini client wrapper
 │   │       ├── aiUsage.model.ts     # AI usage/audit log
 │   │       ├── career-advisor/      # AI career advice feature
-│   │       └── cover-letter/        # AI cover letter feature
+│   │       ├── cover-letter/        # AI cover letter feature
+│   │       └── resume/              # AI resume builder feature
 │   ├── routes/
 │   │   └── index.ts                 # Mounts all module routers under /api
 │   └── types/
-│       └── express.d.ts             # Express `Request.user` type augmentation
+│       └── express.d.ts             # Express `Request.user` type augmentation (includes `recruiterStatus`)
 ├── .env.example                     # Environment variable template
 ├── package.json
 ├── tsconfig.json
@@ -139,7 +148,7 @@ careerpilot-server/
 └── .gitignore
 ```
 
-Each module under `src/modules/` (with the exception of `settings`, which is route-only, and `ai`, which contains shared AI infrastructure alongside its two features) consistently contains its own `*.controller.ts`, `*.routes.ts`, `*.service.ts`, `*.validators.ts`, and, where the module owns data, `*.model.ts`.
+Each module under `src/modules/` (with the exception of `settings`, which is route-only, and `ai`, which contains shared AI infrastructure alongside its three features) consistently contains its own `*.controller.ts`, `*.routes.ts`, `*.service.ts`, `*.validators.ts`, and, where the module owns data, `*.model.ts`.
 
 ## Installation & Setup
 
@@ -215,15 +224,34 @@ All routes are mounted under the `/api` prefix (see `src/routes/index.ts`), in a
 
 ### Jobs — `/api/jobs`
 
-| Method | Path         | Auth                 | Description                                                                                                                                                                                          |
-| ------ | ------------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/`          | Optional             | List jobs with search, filters (category, location, experience, employment type, min salary, skills, and `mine=true` to restrict to the authenticated user's own postings), sorting, and pagination. |
-| GET    | `/saved`     | Required             | List the authenticated user's saved jobs (paginated).                                                                                                                                                |
-| GET    | `/:slug`     | Optional             | Get a single job by slug, including related jobs in the same category.                                                                                                                               |
-| POST   | `/`          | Required             | Create a new job posting.                                                                                                                                                                            |
-| PATCH  | `/:id/save`  | Required             | Toggle saving/unsaving a job.                                                                                                                                                                        |
-| POST   | `/:id/apply` | Required             | Apply to a job (duplicate applications rejected).                                                                                                                                                    |
-| DELETE | `/:id`       | Required + Ownership | Delete a job (only the creator or an admin).                                                                                                                                                         |
+Jobs carry a `status` of `draft`, `published`, or `closed`. Non-owners and non-admins only ever see `published` jobs (in listings, by slug, and as "related jobs"), and applications are only accepted against `published` jobs.
+
+| Method | Path         | Auth                              | Description                                                                                                                                                                                          |
+| ------ | ------------ | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/`          | Optional                          | List jobs with search, filters (category, location, experience, employment type, min salary, skills, and `mine=true` to restrict to the authenticated user's own postings), sorting, and pagination. |
+| GET    | `/saved`     | Required                          | List the authenticated user's saved jobs (paginated).                                                                                                                                                |
+| GET    | `/:slug`     | Optional                          | Get a single job by slug, including related published jobs in the same category.                                                                                                                     |
+| POST   | `/`          | Required + `recruiter` (approved) | Create a new job posting (starts as `draft`).                                                                                                                                                        |
+| PATCH  | `/:id`       | Required + Ownership              | Update a job's details or status. Setting `status: "published"` requires an approved recruiter (or admin) account.                                                                                   |
+| PATCH  | `/:id/save`  | Required                          | Toggle saving/unsaving a job.                                                                                                                                                                        |
+| POST   | `/:id/apply` | Required                          | Apply to a published job (duplicate applications rejected).                                                                                                                                          |
+| DELETE | `/:id`       | Required + Ownership              | Delete a job (only the creator or an admin).                                                                                                                                                         |
+
+### Applications — `/api/applications`
+
+| Method | Path          | Auth                                      | Description                                                                                                                                   |
+| ------ | ------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/mine`       | Required + `user` role                    | List the authenticated job seeker's own applications, paginated.                                                                              |
+| PATCH  | `/:id/status` | Required + Ownership + Approved recruiter | Update an applicant's status (`applied`/`reviewing`/`shortlisted`/`rejected`/`hired`). Ownership is checked against the parent job's creator. |
+
+Applicants for a specific job are listed via `GET /api/jobs/:id/applicants` (mounted separately in `src/routes/index.ts`), restricted to that job's owning recruiter or an admin.
+
+### Recruiter — `/api/recruiter` (all routes require authentication + `recruiter` role)
+
+| Method | Path       | Description                                                |
+| ------ | ---------- | ---------------------------------------------------------- |
+| GET    | `/profile` | Get the recruiter's own company profile.                   |
+| PATCH  | `/profile` | Create or update the recruiter's company profile (upsert). |
 
 ### Profile — `/api/profile` (all routes require authentication)
 
@@ -287,21 +315,30 @@ All routes are mounted under the `/api` prefix (see `src/routes/index.ts`), in a
 | ------ | ---- | -------- | ------------------------------------------------------------------- |
 | POST   | `/`  | Required | Generate a cover letter for a given company/role, tone, and length. |
 
+### AI — Resume Builder — `/api/ai/resume`
+
+| Method | Path | Auth     | Description                                                                                                  |
+| ------ | ---- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| POST   | `/`  | Required | Generate a plain-text, ATS-friendly resume from a target role plus skills/experience/education/achievements. |
+
 ### Admin — `/api/admin` (all routes require authentication + `admin` role)
 
-| Method | Path                | Description                                                                                 |
-| ------ | ------------------- | ------------------------------------------------------------------------------------------- |
-| GET    | `/users`            | List users (search by name/email, paginated).                                               |
-| PATCH  | `/users/:id/status` | Suspend or reactivate a user (cannot target self; suspension also revokes active sessions). |
-| DELETE | `/users/:id`        | Delete a user and associated auth records (cannot target self).                             |
-| GET    | `/testimonials`     | List testimonials filterable by status, paginated.                                          |
-| PATCH  | `/testimonials/:id` | Approve, reject, or reset a testimonial's status.                                           |
-| GET    | `/categories`       | List categories.                                                                            |
-| POST   | `/categories`       | Create a category.                                                                          |
-| PATCH  | `/categories/:id`   | Update a category (renaming propagates to all jobs using it).                               |
-| DELETE | `/categories/:id`   | Delete a category (blocked if jobs still reference it).                                     |
-| GET    | `/settings`         | Get full platform settings.                                                                 |
-| PUT    | `/settings`         | Update platform settings.                                                                   |
+| Method | Path                     | Description                                                                                                                                                                                  |
+| ------ | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/users`                 | List users (search by name/email, paginated).                                                                                                                                                |
+| PATCH  | `/users/:id/status`      | Suspend or reactivate a user (cannot target self; suspension also revokes active sessions).                                                                                                  |
+| DELETE | `/users/:id`             | Delete a user and associated auth records (cannot target self).                                                                                                                              |
+| GET    | `/recruiters`            | List recruiter accounts, filterable by `recruiterStatus`, paginated.                                                                                                                         |
+| PATCH  | `/recruiters/:id/status` | Set a recruiter's `recruiterStatus` (`pending`/`approved`/`rejected`/`suspended`; cannot target self). Revokes the recruiter's active sessions; suspending also closes their published jobs. |
+| PATCH  | `/jobs/:id/status`       | Approve (`published`), reject (`closed`), or reset (`draft`) a job posting.                                                                                                                  |
+| GET    | `/testimonials`          | List testimonials filterable by status, paginated.                                                                                                                                           |
+| PATCH  | `/testimonials/:id`      | Approve, reject, or reset a testimonial's status.                                                                                                                                            |
+| GET    | `/categories`            | List categories.                                                                                                                                                                             |
+| POST   | `/categories`            | Create a category.                                                                                                                                                                           |
+| PATCH  | `/categories/:id`        | Update a category (renaming propagates to all jobs using it).                                                                                                                                |
+| DELETE | `/categories/:id`        | Delete a category (blocked if jobs still reference it).                                                                                                                                      |
+| GET    | `/settings`              | Get full platform settings.                                                                                                                                                                  |
+| PUT    | `/settings`              | Update platform settings.                                                                                                                                                                    |
 
 ### Response Format
 
@@ -333,34 +370,36 @@ Authentication is **not** implemented in this server. Instead, the API acts as a
 
 1. Clients send a `Bearer` token in the `Authorization` header.
 2. `protect` (required auth) and `optionalAuth` (optional auth) middlewares verify the token's signature using `jose`'s `createRemoteJWKSet`, fetched from `${CLIENT_URL}/api/auth/jwks`, and validate the `issuer` and `audience` against `CLIENT_URL`.
-3. Rather than trusting the role/status embedded in the token, the middleware performs a **live lookup** of the user's current `status` and `role` directly against Better Auth's `user` collection (via a schema-less Mongoose read model, `UserReadModel`) on every authenticated request. This ensures role changes, suspensions, or account deletions take effect immediately, without waiting for token expiry.
+3. Rather than trusting the role/status embedded in the token, the middleware performs a **live lookup** of the user's current `status`, `role`, and `recruiterStatus` directly against Better Auth's `user` collection (via a schema-less Mongoose read model, `UserReadModel`) on every authenticated request. This ensures role changes, suspensions, recruiter approval changes, or account deletions take effect immediately, without waiting for token expiry.
 4. Requests for suspended accounts are rejected with `403`; requests referencing a deleted account are rejected with `401`; unrecognized roles are rejected with `403` (or silently treated as anonymous on optional-auth routes).
 
-**Authorization** is layered on top of authentication via two additional middlewares:
+**Authorization** is layered on top of authentication via three additional middlewares:
 
-- **`requireRole(...roles)`** — restricts a route to one or more roles (e.g., `admin`). All `/api/admin/*` routes require the `admin` role.
-- **`requireOwnership(getResourceOwnerId)`** — ensures the authenticated user owns the target resource (e.g., a job) before allowing mutation, unless they are an admin, who bypasses the check. Used for job deletion.
+- **`requireRole(...roles)`** — restricts a route to one or more roles (e.g., `admin`, `recruiter`). All `/api/admin/*` routes require the `admin` role; all `/api/recruiter/*` routes require the `recruiter` role.
+- **`requireOwnership(getResourceOwnerId)`** — ensures the authenticated user owns the target resource (e.g., a job or application) before allowing mutation, unless they are an admin, who bypasses the check. Used for job updates/deletion and applicant status changes.
+- **`requireRecruiterApproved`** — restricts a route to recruiters whose `recruiterStatus` is `approved`, rejecting non-recruiters and pending/rejected/suspended recruiters alike. Used for publishing jobs and managing applicants.
 
-Supported roles (`src/lib/roles.ts`): `user`, `admin`.
+Supported roles (`src/lib/roles.ts`): `user`, `recruiter`, `admin`. Recruiters additionally carry a `recruiterStatus` of `pending`, `approved`, `rejected`, or `suspended`, set by an admin.
 
 ## Database Models
 
 All models are Mongoose schemas. Timestamps and IDs are transformed to a client-friendly shape (`id` instead of `_id`, ISO date strings) via `toJSON` transforms where applicable.
 
-| Model              | Collection                        | Purpose                                                     | Key Fields                                                                                                                                                                                                            |
-| ------------------ | --------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Job`              | `jobs`                            | Job postings                                                | `slug` (unique), `title`, `company`, `location`, `category`, `employmentType` (enum), `experience`, `salaryMin/Max`, `skills[]`, `shortDescription`, `description`, `benefits[]`, `deadline`, `postedAt`, `createdBy` |
-| `SavedJob`         | `savedjobs`                       | User-saved jobs (many-to-many between users and jobs)       | `userId`, `jobId` (unique compound index)                                                                                                                                                                             |
-| `Application`      | `applications`                    | Job applications                                            | `userId`, `jobId` (unique compound index, prevents duplicate applications)                                                                                                                                            |
-| `Profile`          | `profiles`                        | User profile data                                           | `userId` (unique), `name`, `email`, `phone`, `role`, `address`, `gender`, `avatarUrl`, `skills[]`, `education[]` (subdocuments), `experience[]` (subdocuments)                                                        |
-| `Category`         | `categories`                      | Job categories                                              | `name` (unique), `slug` (unique), `icon` (enum), `order`                                                                                                                                                              |
-| `Testimonial`      | `testimonials`                    | User testimonials                                           | `userId`, `name`, `role`, `rating` (1–5), `review`, `status` (`pending`/`approved`/`rejected`)                                                                                                                        |
-| `Contact`          | `contacts`                        | Contact form submissions                                    | `name`, `email`, `message`, `resolved`                                                                                                                                                                                |
-| `Settings`         | `settings`                        | Singleton platform settings document                        | `siteName`, `supportEmail`, `maintenanceMode`, `allowRegistrations`                                                                                                                                                   |
-| `AiUsage`          | `aiusages`                        | Audit log of AI feature usage                               | `userId`, `feature` (`career-advisor`/`cover-letter`), `targetRole`, `createdAt`                                                                                                                                      |
-| `UserReadModel`    | `user` (external, Better Auth)    | Read-only access to Better Auth's user collection           | Schema-less (`strict: false`); read/updated for status and role management only                                                                                                                                       |
-| `SessionReadModel` | `session` (external, Better Auth) | Read-only access for session cleanup on suspension/deletion | Schema-less                                                                                                                                                                                                           |
-| `AccountReadModel` | `account` (external, Better Auth) | Read-only access for account cleanup on user deletion       | Schema-less                                                                                                                                                                                                           |
+| Model              | Collection                        | Purpose                                                     | Key Fields                                                                                                                                                                                                                                                                              |
+| ------------------ | --------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Job`              | `jobs`                            | Job postings                                                | `slug` (unique), `title`, `company`, `location`, `category`, `employmentType` (enum), `experience`, `salaryMin/Max`, `skills[]`, `shortDescription`, `description`, `benefits[]`, `deadline`, `postedAt`, `createdBy`, `status` (`draft`/`published`/`closed`, indexed with `postedAt`) |
+| `SavedJob`         | `savedjobs`                       | User-saved jobs (many-to-many between users and jobs)       | `userId`, `jobId` (unique compound index)                                                                                                                                                                                                                                               |
+| `Application`      | `applications`                    | Job applications                                            | `userId`, `jobId` (unique compound index, prevents duplicate applications; also indexed alone for recruiter applicant lookups), `status` (`applied`/`reviewing`/`shortlisted`/`rejected`/`hired`), `statusUpdatedAt`                                                                    |
+| `RecruiterProfile` | `recruiterprofiles`               | Recruiter company profile                                   | `userId` (unique), `companyName`, `companyWebsite`, `companySize`, `industry`, `logoUrl`, `description`, `verificationNote`                                                                                                                                                             |
+| `Profile`          | `profiles`                        | User profile data                                           | `userId` (unique), `name`, `email`, `phone`, `role`, `address`, `gender`, `avatarUrl`, `skills[]`, `education[]` (subdocuments), `experience[]` (subdocuments)                                                                                                                          |
+| `Category`         | `categories`                      | Job categories                                              | `name` (unique), `slug` (unique), `icon` (enum), `order`                                                                                                                                                                                                                                |
+| `Testimonial`      | `testimonials`                    | User testimonials                                           | `userId`, `name`, `role`, `rating` (1–5), `review`, `status` (`pending`/`approved`/`rejected`)                                                                                                                                                                                          |
+| `Contact`          | `contacts`                        | Contact form submissions                                    | `name`, `email`, `message`, `resolved`                                                                                                                                                                                                                                                  |
+| `Settings`         | `settings`                        | Singleton platform settings document                        | `siteName`, `supportEmail`, `maintenanceMode`, `allowRegistrations`                                                                                                                                                                                                                     |
+| `AiUsage`          | `aiusages`                        | Audit log of AI feature usage                               | `userId`, `feature` (`career-advisor`/`cover-letter`/`resume`), `targetRole`, `createdAt`                                                                                                                                                                                               |
+| `UserReadModel`    | `user` (external, Better Auth)    | Read-only access to Better Auth's user collection           | Schema-less (`strict: false`); read/updated for status, role, and `recruiterStatus` management only                                                                                                                                                                                     |
+| `SessionReadModel` | `session` (external, Better Auth) | Read-only access for session cleanup on suspension/deletion | Schema-less                                                                                                                                                                                                                                                                             |
+| `AccountReadModel` | `account` (external, Better Auth) | Read-only access for account cleanup on user deletion       | Schema-less                                                                                                                                                                                                                                                                             |
 
 Note: `UserReadModel`, `SessionReadModel`, and `AccountReadModel` intentionally point at collections owned by the external Better Auth system rather than collections created by this server. This server never creates users, sessions, or accounts directly — it only reads and, for status/deletion management, updates them.
 
@@ -399,6 +438,10 @@ The generated result includes:
 
 Given a target company/role, optional skills/experience, a tone (`Professional`, `Friendly`, `Enthusiastic`, `Formal`, `Concise`), and a length (`Short`, `Medium`, `Long`), the service builds a plain-text prompt (`cover-letter.prompt.ts`) with explicit opening/closing and word-count guidance. The candidate's name is resolved from the authenticated user's token claim, falling back to their stored `Profile.name` if not present, so the letter is never signed with a placeholder unless no name is available anywhere. Successful generations are logged to `AiUsage`.
 
+### Resume Builder (`/api/ai/resume`)
+
+Given a target role plus optional skills, work experience, education, and achievements, the service builds a plain-text prompt (`resume.prompt.ts`) instructing the model to produce a complete, ATS-friendly resume with fixed section headers (professional summary, skills, work experience, education, and achievements when supplied). As with the cover letter feature, the candidate's name falls back to their stored `Profile.name` when not supplied directly. Successful generations are logged to `AiUsage` under the `resume` feature.
+
 ## Validation & Error Handling
 
 - **Validation** is performed with **Zod**. Each module defines schemas for `body`, `params`, and `query` as applicable, and the `validate` middleware (`src/middlewares/validate.middleware.ts`) parses `{ body, params, query }` together, reassigning the parsed (and coerced/defaulted) values back onto the request object. Validation failures produce a `400` response with a `details` array of `{ field, message }` objects.
@@ -420,7 +463,8 @@ Given a target company/role, optional skills/experience, a tone (`Professional`,
 - **Regex injection prevention** — user-supplied search strings used to build MongoDB regex filters are escaped before use (`job.service.ts`, `admin.service.ts`).
 - **Environment variable validation** — the app refuses to start if required configuration (`DATABASE_URL`, `CLIENT_URL`) is missing or malformed, avoiding insecure default fallbacks.
 - **Least-exposure error responses** — stack traces and raw internal error messages are withheld in production responses.
-- **Self-action protection** — admins cannot suspend or delete their own account through the admin API.
+- **Self-action protection** — admins cannot suspend or delete their own account, or change their own recruiter status, through the admin API.
+- **Recruiter approval gating** — only recruiters with an `approved` `recruiterStatus` (checked live on every request) may publish jobs or manage applicants; changing a recruiter's status immediately revokes their active sessions, and suspending one also closes their published jobs.
 - **Testimonial identity integrity** — testimonial `name`/`role` are always derived server-side from the authenticated user's profile, never accepted directly from the request body, preventing impersonation.
 
 ## Deployment Guide
