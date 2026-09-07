@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { optionalAuth, protect } from "../../middlewares/auth.middleware.js";
 import { requireOwnership } from "../../middlewares/ownership.middleware.js";
+import { requireRole } from "../../middlewares/requireRole.middleware.js";
+import { requireRecruiterApproved } from "../../middlewares/requireRecruiterApproved.middleware.js";
 import { validate } from "../../middlewares/validate.middleware.js";
 import * as controller from "./job.controller.js";
 import {
@@ -9,6 +11,7 @@ import {
   jobSlugParamsSchema,
   listJobsQuerySchema,
   listSavedJobsQuerySchema,
+  updateJobSchema,
 } from "./job.validators.js";
 
 const router = Router();
@@ -29,7 +32,14 @@ router.get(
   controller.getOne,
 );
 
-router.post("/", protect, validate(addJobSchema), controller.create);
+router.post(
+  "/",
+  protect,
+  requireRole("recruiter"),
+  requireRecruiterApproved,
+  validate(addJobSchema),
+  controller.create,
+);
 
 router.patch(
   "/:id/save",
@@ -43,6 +53,14 @@ router.post(
   protect,
   validate(jobIdParamsSchema),
   controller.apply,
+);
+
+router.patch(
+  "/:id",
+  protect,
+  validate(updateJobSchema),
+  requireOwnership(controller.resolveJobOwner),
+  controller.update,
 );
 
 router.delete(

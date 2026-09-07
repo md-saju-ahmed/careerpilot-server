@@ -1,7 +1,7 @@
 import { type QueryFilter, Types } from "mongoose";
 import { ApiError } from "../../lib/ApiError.js";
 import { categoryExists } from "../categories/category.service.js";
-import { type AddJobInput } from "./job.validators.js";
+import { type AddJobInput, type UpdateJobInput } from "./job.validators.js";
 import {
   Application,
   DEFAULT_BENEFITS,
@@ -58,11 +58,14 @@ async function generateUniqueSlug(
 function buildFilter(
   query: ListJobsQuery,
   userId?: string,
+  userRole?: string,
 ): QueryFilter<JobDocument> {
   const filter: QueryFilter<JobDocument> = {};
 
   if (query.mine && userId) {
     filter.createdBy = userId;
+  } else if (userRole !== "admin") {
+    filter.status = "published";
   }
 
   if (query.query) {
@@ -159,8 +162,12 @@ async function getAppliedJobIdSet(
   );
 }
 
-export async function listJobs(query: ListJobsQuery, userId?: string) {
-  const filter = buildFilter(query, userId);
+export async function listJobs(
+  query: ListJobsQuery,
+  userId?: string,
+  userRole?: string,
+) {
+  const filter = buildFilter(query, userId, userRole);
   const sort = buildSort(query.sort);
   const skip = (query.page - 1) * query.limit;
 
@@ -190,16 +197,28 @@ export async function listJobs(query: ListJobsQuery, userId?: string) {
   };
 }
 
-export async function getJobBySlug(slug: string, userId?: string) {
+export async function getJobBySlug(
+  slug: string,
+  userId?: string,
+  userRole?: string,
+) {
   const job = await Job.findOne({ slug });
 
   if (!job) {
     throw new ApiError(404, `No job found with slug "${slug}"`);
   }
 
+  const isOwner = userId && job.createdBy === userId;
+  const isAdminUser = userRole === "admin";
+
+  if (!isOwner && !isAdminUser && job.status !== "published") {
+    throw new ApiError(404, `No job found with slug "${slug}"`);
+  }
+
   const relatedJobs = await Job.find({
     category: job.category,
     _id: { $ne: job._id },
+    status: "published",
   })
     .sort({ postedAt: -1 })
     .limit(4);
@@ -295,15 +314,16 @@ export async function toggleSaveJob(
 /**
  * Records a job application for the user.
  * Prevents duplicate applications for the same job.
+ * Rejects applications to jobs that are not in "published" status.
  */
 export async function applyToJob(
   jobId: string,
   userId: string,
 ): Promise<{ applied: true }> {
-  const job = await Job.exists({ _id: jobId });
+  const job = await Job.findOne({ _id: jobId, status: "published" });
 
   if (!job) {
-    throw new ApiError(404, "Job not found");
+    throw new ApiError(400, "This job is no longer accepting applications.");
   }
 
   const existing = await Application.exists({ userId, jobId });
@@ -375,4 +395,40 @@ export async function getSavedJobs(
     page,
     pages: Math.max(1, Math.ceil(total / limit)),
   };
+}
+
+export async function updateJob(
+  jobId: string,
+  input: UpdateJobInput,
+  recruiterStatus?: string,
+): Promise<ReturnType<typeof toJobJSON>> {
+  const job = await Job.findById(jobId);
+
+  if (!job) {
+    throw new ApiError(404, "Job not found");
+  }
+
+  if (
+    input.status === "published" &&
+    recruiterStatus !== "approved" &&
+    recruiterStatus !== "admin"
+  ) {
+    throw new ApiError(
+      403,
+      "Your recruiter account must be approved before you can publish a job.",
+    );
+  }
+
+  const { deadline, ...rest } = input;
+  Object.assign(job, rest);
+
+  if (deadline === null) {
+    job.set("deadline", undefined);
+  } else if (deadline) {
+    job.deadline = new Date(deadline);
+  }
+
+  await job.save();
+
+  return toJobJSON(job);
 }

@@ -45,6 +45,7 @@ export interface JobDocument extends Document {
   deadline?: Date;
   postedAt: Date;
   createdBy: string;
+  status: "draft" | "published" | "closed";
 }
 
 const jobSchema = new Schema<JobDocument>(
@@ -66,6 +67,11 @@ const jobSchema = new Schema<JobDocument>(
     deadline: { type: Date },
     postedAt: { type: Date, default: () => new Date(), index: true },
     createdBy: { type: String, required: true, index: true },
+    status: {
+      type: String,
+      enum: ["draft", "published", "closed"],
+      default: "draft",
+    },
   },
   {
     toJSON: {
@@ -87,6 +93,8 @@ const jobSchema = new Schema<JobDocument>(
     },
   },
 );
+
+jobSchema.index({ status: 1, postedAt: -1 });
 
 export const Job = model<JobDocument>("Job", jobSchema);
 
@@ -113,6 +121,7 @@ export interface JobJSON {
   deadline?: string;
   postedAt: string;
   createdBy: string;
+  status: "draft" | "published" | "closed";
 }
 
 /** Serializes a Job document into its public JSON shape. */
@@ -150,17 +159,27 @@ export const SavedJob = model<SavedJobDocument>("SavedJob", savedJobSchema);
 export interface ApplicationDocument extends Document {
   userId: string;
   jobId: Types.ObjectId;
+  status: "applied" | "reviewing" | "shortlisted" | "rejected" | "hired";
+  statusUpdatedAt: Date;
   createdAt: Date;
 }
 
 const applicationSchema = new Schema<ApplicationDocument>({
   userId: { type: String, required: true, index: true },
   jobId: { type: Schema.Types.ObjectId, ref: "Job", required: true },
+  status: {
+    type: String,
+    enum: ["applied", "reviewing", "shortlisted", "rejected", "hired"],
+    default: "applied",
+  },
+  statusUpdatedAt: { type: Date, default: () => new Date() },
   createdAt: { type: Date, default: () => new Date() },
 });
 
 // Prevent duplicate applications for the same user and job
 applicationSchema.index({ userId: 1, jobId: 1 }, { unique: true });
+// Efficient lookup of all applications for a given job (recruiter view)
+applicationSchema.index({ jobId: 1 });
 
 export const Application = model<ApplicationDocument>(
   "Application",

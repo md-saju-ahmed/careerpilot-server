@@ -7,7 +7,7 @@ import { type ListJobsQuery } from "./job.service.js";
 
 export const list = asyncHandler(async (req: Request, res: Response) => {
   const q = req.query as unknown as ListJobsQuery;
-  const result = await jobService.listJobs(q, req.user?.id);
+  const result = await jobService.listJobs(q, req.user?.id, req.user?.role);
   new ApiResponse(result).send(res);
 });
 
@@ -22,7 +22,11 @@ export const listSaved = asyncHandler(async (req: Request, res: Response) => {
 
 export const getOne = asyncHandler(async (req: Request, res: Response) => {
   const slug = requireParam(req.params.slug, "slug");
-  const result = await jobService.getJobBySlug(slug, req.user?.id);
+  const result = await jobService.getJobBySlug(
+    slug,
+    req.user?.id,
+    req.user?.role,
+  );
   new ApiResponse(result).send(res);
 });
 
@@ -47,6 +51,14 @@ export const remove = asyncHandler(async (req: Request, res: Response) => {
   const id = requireParam(req.params.id, "id");
   await jobService.deleteJob(id);
   new ApiResponse(null, "Job deleted").send(res);
+});
+
+export const update = asyncHandler(async (req: Request, res: Response) => {
+  const id = requireParam(req.params.id, "id");
+  const recruiterStatus =
+    req.user?.role === "admin" ? "admin" : req.user?.recruiterStatus;
+  const job = await jobService.updateJob(id, req.body, recruiterStatus);
+  new ApiResponse(job, "Job updated").send(res);
 });
 
 export async function resolveJobOwner(req: Request): Promise<string | null> {
