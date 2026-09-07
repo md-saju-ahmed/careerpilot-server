@@ -88,9 +88,9 @@ async function computeProfileCompleteness(userId: string): Promise<number> {
 async function getUserStats(userId: string): Promise<DashboardStat[]> {
   const now = new Date();
 
-  const [totalJobs, savedCount, aiGenerationsThisMonth, completeness] =
+  const [appliedCount, savedCount, aiGenerationsThisMonth, completeness] =
     await Promise.all([
-      Job.countDocuments({}),
+      Application.countDocuments({ userId }),
       SavedJob.countDocuments({ userId }),
       AiUsage.countDocuments({
         userId,
@@ -101,9 +101,9 @@ async function getUserStats(userId: string): Promise<DashboardStat[]> {
 
   return [
     {
-      id: "total-jobs",
-      label: "Jobs available",
-      value: String(totalJobs),
+      id: "total-applied",
+      label: "Total applied",
+      value: String(appliedCount),
       icon: "briefcase",
     },
     {
@@ -122,6 +122,45 @@ async function getUserStats(userId: string): Promise<DashboardStat[]> {
       id: "profile-completeness",
       label: "Profile completeness",
       value: `${completeness}%`,
+      icon: "user",
+    },
+  ];
+}
+
+async function getRecruiterStats(userId: string): Promise<DashboardStat[]> {
+  const [publishedJobs, draftJobs, closedJobs, applicationsReceived] =
+    await Promise.all([
+      Job.countDocuments({ createdBy: userId, status: "published" }),
+      Job.countDocuments({ createdBy: userId, status: "draft" }),
+      Job.countDocuments({ createdBy: userId, status: "closed" }),
+      Application.countDocuments({
+        jobId: { $in: await Job.distinct("_id", { createdBy: userId }) },
+      }),
+    ]);
+
+  return [
+    {
+      id: "published-jobs",
+      label: "Published jobs",
+      value: String(publishedJobs),
+      icon: "briefcase",
+    },
+    {
+      id: "draft-jobs",
+      label: "Draft jobs",
+      value: String(draftJobs),
+      icon: "bookmark",
+    },
+    {
+      id: "applications-received",
+      label: "Applications received",
+      value: String(applicationsReceived),
+      icon: "sparkles",
+    },
+    {
+      id: "closed-jobs",
+      label: "Closed jobs",
+      value: String(closedJobs),
       icon: "user",
     },
   ];
@@ -245,7 +284,11 @@ export async function getSummary(
   role: string,
 ): Promise<DashboardSummary> {
   const [stats, categories, monthlyTrend, recentJobs] = await Promise.all([
-    role === "admin" ? getAdminStats() : getUserStats(userId),
+    role === "admin"
+      ? getAdminStats()
+      : role === "recruiter"
+        ? getRecruiterStats(userId)
+        : getUserStats(userId),
     categoryService.getCategoryBreakdown(),
     getMonthlyTrend(),
     getRecentJobs(),
