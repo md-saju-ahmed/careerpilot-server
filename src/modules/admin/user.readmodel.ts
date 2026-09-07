@@ -6,6 +6,7 @@ export interface UserReadModelDocument extends Document {
   email?: string;
   role?: string;
   status?: string;
+  recruiterStatus?: string;
   createdAt?: Date;
 }
 

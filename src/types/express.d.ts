@@ -8,6 +8,7 @@ export interface AuthUser {
   name?: string;
   status?: string;
   image?: string;
+  recruiterStatus?: string;
 }
 
 declare global {

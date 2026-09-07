@@ -19,9 +19,9 @@ import type { AuthUser } from "../types/express.js";
  */
 async function getCurrentUserState(
   userId: string,
-): Promise<{ status: string; role: string } | null> {
+): Promise<{ status: string; role: string; recruiterStatus: string } | null> {
   const doc = await UserReadModel.findOne(buildUserIdFilter(userId))
-    .select("status role")
+    .select("status role recruiterStatus")
     .lean();
 
   if (!doc) return null;
@@ -29,6 +29,7 @@ async function getCurrentUserState(
   return {
     status: (doc.status as string) || "active",
     role: (doc.role as string) || "user",
+    recruiterStatus: (doc.recruiterStatus as string) || "not_applicable",
   };
 }
 
@@ -69,7 +70,7 @@ export async function protect(
       return;
     }
 
-    const { status, role } = current;
+    const { status, role, recruiterStatus } = current;
 
     if (status === "suspended") {
       next(
@@ -97,6 +98,7 @@ export async function protect(
       email: payload.email as string,
       role,
       status,
+      recruiterStatus,
       ...(typeof payload.name === "string" ? { name: payload.name } : {}),
       ...(typeof payload.image === "string" ? { image: payload.image } : {}),
     };
@@ -154,7 +156,7 @@ export async function optionalAuth(
       return;
     }
 
-    const { status, role } = current;
+    const { status, role, recruiterStatus } = current;
 
     // Public routes cannot reject requests, so treat unknown roles
     // as anonymous users instead of trusting the role value.
@@ -168,6 +170,7 @@ export async function optionalAuth(
       email: payload.email as string,
       role,
       status,
+      recruiterStatus,
       ...(typeof payload.name === "string" ? { name: payload.name } : {}),
       ...(typeof payload.image === "string" ? { image: payload.image } : {}),
     };
