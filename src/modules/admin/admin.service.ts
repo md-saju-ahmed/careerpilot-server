@@ -1,9 +1,10 @@
 import { type QueryFilter, Types } from "mongoose";
 import { ApiError } from "../../lib/ApiError.js";
+import { revokeSessionsForUser } from "../../lib/session.js";
+import { Job } from "../jobs/job.model.js";
 import { Settings, SETTINGS_KEY } from "./settings.model.js";
 import {
   UserReadModel,
-  SessionReadModel,
   AccountReadModel,
   buildUserIdFilter,
   type UserReadModelDocument,
@@ -23,6 +24,7 @@ function serializeUser(doc: Record<string, unknown>) {
     email: doc.email ?? "",
     role: doc.role ?? "user",
     status: doc.status ?? "active",
+    recruiterStatus: (doc.recruiterStatus as string) ?? undefined,
     createdAt: doc.createdAt ?? null,
   };
 }
@@ -42,7 +44,7 @@ export async function listUsers(query: ListUsersQuery) {
 
   const [users, total] = await Promise.all([
     UserReadModel.find(filter)
-      .select("name email role status createdAt")
+      .select("name email role status recruiterStatus createdAt")
       .skip(skip)
       .limit(query.limit)
       .lean(),
@@ -50,7 +52,9 @@ export async function listUsers(query: ListUsersQuery) {
   ]);
 
   return {
-    users: users.map((user) => serializeUser(user as unknown as Record<string, unknown>)),
+    users: users.map((user) =>
+      serializeUser(user as unknown as Record<string, unknown>),
+    ),
     total,
     page: query.page,
     pages: Math.max(1, Math.ceil(total / query.limit)),
@@ -64,7 +68,7 @@ export async function updateUserStatus(
   const user = await UserReadModel.findOneAndUpdate(
     buildUserIdFilter(id),
     { $set: { status } },
-    { new: true },
+    { returnDocument: "after" },
   )
     .select("id name email role status createdAt")
     .lean();
@@ -78,7 +82,7 @@ export async function updateUserStatus(
     const doc = user as unknown as Record<string, unknown>;
     const resolvedId =
       (doc.id as string) ?? (doc._id as Types.ObjectId).toString();
-    await SessionReadModel.deleteMany({ userId: resolvedId });
+    await revokeSessionsForUser(resolvedId);
   }
 
   return serializeUser(user as unknown as Record<string, unknown>);
@@ -102,16 +106,94 @@ export async function deleteUser(id: string) {
 
   await Promise.all([
     UserReadModel.deleteOne({ _id: doc._id as Types.ObjectId }),
-    SessionReadModel.deleteMany({ userId: resolvedId }),
+    revokeSessionsForUser(resolvedId),
     AccountReadModel.deleteMany({ userId: resolvedId }),
   ]);
+}
+
+export interface ListRecruitersQuery {
+  recruiterStatus?: string;
+  page: number;
+  limit: number;
+}
+
+function serializeRecruiter(doc: Record<string, unknown>) {
+  return {
+    id: doc.id ?? (doc._id as Types.ObjectId).toString(),
+    name: doc.name ?? "",
+    email: doc.email ?? "",
+    role: doc.role ?? "recruiter",
+    status: doc.status ?? "active",
+    recruiterStatus: doc.recruiterStatus ?? "pending",
+    createdAt: doc.createdAt ?? null,
+  };
+}
+
+export async function listRecruiters(query: ListRecruitersQuery) {
+  const filter: QueryFilter<UserReadModelDocument> = { role: "recruiter" };
+
+  if (query.recruiterStatus) {
+    filter.recruiterStatus = query.recruiterStatus;
+  }
+
+  const skip = (query.page - 1) * query.limit;
+
+  const [recruiters, total] = await Promise.all([
+    UserReadModel.find(filter)
+      .select("name email role status recruiterStatus createdAt")
+      .skip(skip)
+      .limit(query.limit)
+      .lean(),
+    UserReadModel.countDocuments(filter),
+  ]);
+
+  return {
+    recruiters: recruiters.map((r) =>
+      serializeRecruiter(r as unknown as Record<string, unknown>),
+    ),
+    total,
+    page: query.page,
+    pages: Math.max(1, Math.ceil(total / query.limit)),
+  };
+}
+
+export async function updateRecruiterStatus(
+  id: string,
+  recruiterStatus: "approved" | "rejected" | "suspended" | "pending",
+) {
+  const user = await UserReadModel.findOneAndUpdate(
+    { ...buildUserIdFilter(id), role: "recruiter" },
+    { $set: { recruiterStatus } },
+    { returnDocument: "after" },
+  )
+    .select("id name email role status recruiterStatus createdAt")
+    .lean();
+
+  if (!user) {
+    throw new ApiError(404, "Recruiter not found");
+  }
+
+  const doc = user as unknown as Record<string, unknown>;
+  const resolvedId =
+    (doc.id as string) ?? (doc._id as Types.ObjectId).toString();
+
+  await revokeSessionsForUser(resolvedId);
+
+  if (recruiterStatus === "suspended") {
+    await Job.updateMany(
+      { createdBy: resolvedId, status: "published" },
+      { $set: { status: "closed" } },
+    );
+  }
+
+  return serializeRecruiter(doc);
 }
 
 export async function getSettings() {
   const settings = await Settings.findOneAndUpdate(
     { key: SETTINGS_KEY },
     { $setOnInsert: { key: SETTINGS_KEY } },
-    { upsert: true, new: true, setDefaultsOnInsert: true },
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
   );
 
   return settings.toJSON();
@@ -128,7 +210,7 @@ export async function updateSettings(patch: UpdateSettingsInput) {
   const settings = await Settings.findOneAndUpdate(
     { key: SETTINGS_KEY },
     { $set: patch, $setOnInsert: { key: SETTINGS_KEY } },
-    { upsert: true, new: true, setDefaultsOnInsert: true },
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
   );
 
   return settings.toJSON();

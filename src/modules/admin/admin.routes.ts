@@ -8,6 +8,9 @@ import {
   updateStatusSchema,
   deleteUserSchema,
   updateSettingsSchema,
+  listRecruitersQuerySchema,
+  updateRecruiterStatusSchema,
+  updateJobStatusSchema,
 } from "./admin.validators.js";
 import {
   adminListTestimonialsQuerySchema,
@@ -32,6 +35,23 @@ router.patch(
   controller.updateUserStatus,
 );
 router.delete("/users/:id", validate(deleteUserSchema), controller.deleteUser);
+
+router.get(
+  "/recruiters",
+  validate(listRecruitersQuerySchema),
+  controller.listRecruiters,
+);
+router.patch(
+  "/recruiters/:id/status",
+  validate(updateRecruiterStatusSchema),
+  controller.updateRecruiterStatus,
+);
+
+router.patch(
+  "/jobs/:id/status",
+  validate(updateJobStatusSchema),
+  controller.updateJobStatus,
+);
 
 router.get(
   "/testimonials",
