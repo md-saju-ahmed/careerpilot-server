@@ -1,6 +1,6 @@
 import { Document, Schema, model } from "mongoose";
 
-export const AI_FEATURES = ["career-advisor", "cover-letter"] as const;
+export const AI_FEATURES = ["career-advisor", "cover-letter", "resume"] as const;
 export type AiFeature = (typeof AI_FEATURES)[number];
 
 export interface AiUsageDocument extends Document {
