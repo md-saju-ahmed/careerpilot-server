@@ -10,16 +10,6 @@ export const EMPLOYMENT_TYPES = [
 
 export type EmploymentType = (typeof EMPLOYMENT_TYPES)[number];
 
-/** Default benefits applied when no custom benefits are provided. */
-export const DEFAULT_BENEFITS = [
-  "Competitive salary",
-  "Remote-friendly",
-  "Health insurance",
-  "Learning budget",
-  "Flexible PTO",
-  "Home office stipend",
-];
-
 export interface JobDocument extends Document {
   slug: string;
   title: string;
@@ -41,7 +31,6 @@ export interface JobDocument extends Document {
   skills: string[];
   shortDescription: string;
   description: string;
-  benefits: string[];
   deadline?: Date;
   postedAt: Date;
   createdBy: string;
@@ -63,7 +52,6 @@ const jobSchema = new Schema<JobDocument>(
     skills: { type: [String], default: [] },
     shortDescription: { type: String, required: true },
     description: { type: String, required: true },
-    benefits: { type: [String], default: DEFAULT_BENEFITS },
     deadline: { type: Date },
     postedAt: { type: Date, default: () => new Date(), index: true },
     createdBy: { type: String, required: true, index: true },
@@ -117,7 +105,6 @@ export interface JobJSON {
   skills: string[];
   shortDescription: string;
   description: string;
-  benefits: string[];
   deadline?: string;
   postedAt: string;
   createdBy: string;

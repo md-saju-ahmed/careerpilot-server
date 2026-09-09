@@ -60,8 +60,7 @@ export const addJobSchema = z.object({
       salaryMax: z.coerce.number().nonnegative().optional(),
       skills: z.array(z.string().trim().min(1)).min(1).max(20),
       shortDescription: z.string().trim().min(10).max(160),
-      description: z.string().trim().min(30).max(4000),
-      benefits: z.array(z.string().trim().min(1)).optional(),
+      description: z.string().trim().min(30).max(20000),
       deadline: z
         .string()
         .trim()
@@ -100,8 +99,7 @@ export const updateJobSchema = z.object({
       salaryMax: z.coerce.number().nonnegative().optional().nullable(),
       skills: z.array(z.string().trim().min(1)).min(1).max(20),
       shortDescription: z.string().trim().min(10).max(160),
-      description: z.string().trim().min(30).max(4000),
-      benefits: z.array(z.string().trim().min(1)).optional(),
+      description: z.string().trim().min(30).max(20000),
       deadline: z
         .string()
         .trim()

@@ -4,7 +4,6 @@ import { categoryExists } from "../categories/category.service.js";
 import { type AddJobInput, type UpdateJobInput } from "./job.validators.js";
 import {
   Application,
-  DEFAULT_BENEFITS,
   Job,
   type EmploymentType,
   type JobDocument,
@@ -261,7 +260,6 @@ export async function createJob(input: AddJobInput, userId: string) {
   const payload = {
     ...input,
     slug,
-    benefits: input.benefits?.length ? input.benefits : DEFAULT_BENEFITS,
     createdBy: userId,
   } as unknown as Partial<JobDocument>;
 
