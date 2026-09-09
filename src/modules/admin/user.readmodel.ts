@@ -35,7 +35,7 @@ export function buildUserIdFilter(
 
 // better-auth collections used for user cleanup operations.
 export interface SessionReadModelDocument extends Document {
-  userId?: string;
+  userId?: Types.ObjectId;
 }
 
 const sessionReadSchema = new Schema<SessionReadModelDocument>(
@@ -52,7 +52,7 @@ export const SessionReadModel =
   );
 
 export interface AccountReadModelDocument extends Document {
-  userId?: string;
+  userId?: Types.ObjectId;
 }
 
 const accountReadSchema = new Schema<AccountReadModelDocument>(
